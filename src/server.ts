@@ -6,6 +6,7 @@ import authRoutes from './routes/authRoutes.ts'
 import habitRoutes from './routes/habitRoutes.ts'
 import userRoutes from './routes/userRoutes.ts'
 import morgan from 'morgan'
+import { errorHandler, notFound } from './middleware/errorHandler.ts'
 
 // Create Express application
 const app = express()
@@ -34,5 +35,11 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes)
 app.use('/api/users', userRoutes)
 app.use('/api/habits', habitRoutes)
+
+// 404 handler - MUST come after all valid routes
+app.use(notFound)
+
+// Global error handler - MUST be last
+app.use(errorHandler)
 
 export { app }
