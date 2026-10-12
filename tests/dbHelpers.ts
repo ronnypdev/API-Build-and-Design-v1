@@ -1,46 +1,75 @@
 import { db } from '../src/db/connections.ts'
 import { users, habits, entries } from '../src/db/schema.ts'
-import { sql } from 'drizzle-orm'
-import { execSync } from 'child_process'
+import { hashPassword } from '../src/utils/password.ts'
+import { generateToken } from '../src/utils/jwt.ts'
 
-export default async function setup() {
-  console.log('🗄️  Setting up test database...')
-
-  try {
-    // Drop all tables if they exist to ensure clean state
-    await db.execute(sql`DROP TABLE IF EXISTS ${entries} CASCADE`)
-    await db.execute(sql`DROP TABLE IF EXISTS ${habits} CASCADE`)
-    await db.execute(sql`DROP TABLE IF EXISTS ${users} CASCADE`)
-
-    // Use drizzle-kit CLI to push schema to database
-    console.log('🚀 Pushing schema using drizzle-kit...')
-    execSync(
-      `npx drizzle-kit push --url="${process.env.DATABASE_URL}" --schema="./src/db/schema.ts" --dialect="postgresql"`,
-      {
-        stdio: 'inherit',
-        cwd: process.cwd(),
-      },
-    )
-
-    console.log('✅ Test database setup complete')
-  } catch (error) {
-    console.error('❌ Failed to setup test database:', error)
-    throw error
+export async function createTestUser(
+  userData: Partial<{
+    email: string
+    username: string
+    password: string
+    firstName: string
+    lastName: string
+  }> = {},
+) {
+  const defaultData = {
+    email: `test-${Date.now()}-${Math.random()}@example.com`,
+    username: `testuser-${Date.now()}-${Math.random()}`,
+    password: 'TestPassword123!',
+    firstName: 'Test',
+    lastName: 'User',
+    ...userData,
   }
 
-  return async () => {
-    console.log('🧹 Tearing down test database...')
+  const hashedPassword = await hashPassword(defaultData.password)
+  const [user] = await db
+    .insert(users)
+    .values({
+      ...defaultData,
+      password: hashedPassword,
+    })
+    .returning()
 
-    try {
-      // Final cleanup - drop all test data
-      await db.execute(sql`DROP TABLE IF EXISTS ${entries} CASCADE`)
-      await db.execute(sql`DROP TABLE IF EXISTS ${habits} CASCADE`)
-      await db.execute(sql`DROP TABLE IF EXISTS ${users} CASCADE`)
+  const token = await generateToken({
+    id: user.id,
+    email: user.email,
+    username: user.username,
+  })
 
-      console.log('✅ Test database teardown complete')
-      process.exit(0)
-    } catch (error) {
-      console.error('❌ Failed to teardown test database:', error)
-    }
+  return { user, token, rawPassword: defaultData.password }
+}
+
+export async function createTestHabit(
+  userId: string,
+  habitData: Partial<{
+    name: string
+    description: string
+    frequency: string
+    targetCount: number
+  }> = {},
+) {
+  const defaultData = {
+    name: `Test Habit ${Date.now()}`,
+    description: 'A test habit',
+    frequency: 'daily',
+    targetCount: 1,
+    ...habitData,
   }
+
+  const [habit] = await db
+    .insert(habits)
+    .values({
+      userId,
+      ...defaultData,
+    })
+    .returning()
+
+  return habit
+}
+
+export async function cleanupDatabase() {
+  // Clean up in the right order due to foreign key constraints
+  await db.delete(entries)
+  await db.delete(habits)
+  await db.delete(users)
 }
